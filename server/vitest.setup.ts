@@ -1,0 +1,10 @@
+process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+process.env.JWT_SECRET = 'test-secret-key-at-least-32-chars-long!!';
+process.env.JWT_ACCESS_TTL = '15m';
+process.env.JWT_REFRESH_TTL = '7d';
+process.env.ADMIN_EMAIL = 'admin@test.example.com';
+process.env.ADMIN_PASSWORD = 'testpass123';
+process.env.COOKIE_SECRET = 'test-cookie-secret-at-least-32-chars!!';
+process.env.SESSION_SECRET = 'test-session-secret-at-least-32-chars!!';
+process.env.NODE_ENV = 'test';
+process.env.PORT = '4001';
