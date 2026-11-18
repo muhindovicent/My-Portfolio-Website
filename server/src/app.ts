@@ -1,5 +1,6 @@
 import 'express-async-errors';
 import express from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import cors from 'cors';
 import helmet from 'helmet';
 import session from 'express-session';
@@ -14,6 +15,18 @@ const config = loadEnv();
 const app = express();
 
 app.set('trust proxy', 1);
+
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  if (config.NODE_ENV === 'production') {
+    const supplied = Buffer.from(req.get('x-origin-secret') || '');
+    const expected = Buffer.from(config.ORIGIN_SECRET!);
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      res.sendStatus(403); return;
+    }
+  }
+  next();
+});
 
 app.use(
   helmet({

@@ -23,3 +23,5 @@ services:
         sync: false
       - key: CORS_ORIGIN
         sync: false
+      - key: ORIGIN_SECRET
+        sync: false

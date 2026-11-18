@@ -1,5 +1,25 @@
 # Render: Phase 3B
 
+## Same-origin routing
+
+Vercel project root = repository root, framework = Other, no build command, output = `dist`. `vercel.mjs` enables an external rewrite **only** when `RENDER_API_ORIGIN` is set to your owned Render service's exact `https://….onrender.com` origin. With no upstream it serves the static portfolio. Configure the same high-entropy `ORIGIN_SECRET` (at least 32 characters) as a private environment variable on both services. Never expose it to frontend code. Use separate preview services, databases and keys; do not give untrusted PR previews access to production settings.
+
+The browser uses relative `/api/...` URLs on the portfolio origin. Vercel forwards the path, method, body, cookies and `X-CSRF-Token`, overwriting `x-origin-secret`. Render rejects direct production API requests without that secret; `/health` remains public. Set Render `CORS_ORIGIN` to the exact **Vercel** HTTPS origin. The host-only `Secure; HttpOnly; SameSite=Lax` cookie belongs to the browser-facing origin; do not set a Render cookie domain or redirect clients to Render. API responses are `private, no-store`; do not add CDN cache rules. Keep authentication, MFA, CSRF and rate limits active behind the proxy. See [Vercel external rewrites and origin restriction](https://vercel.com/docs/rewrites#restricting-your-origin-to-vercel-traffic).
+
+Before enabling real traffic, use a trusted preview paired with a disposable backend to verify the cookie stays on the preview origin, `/api/admin/auth/csrf-token` is not cached, a missing CSRF token fails, and a direct Render API request returns 403. Rate limits are process-local; the immediate proxy address may be shared. Validate client attribution against the actual proxy chain before relying on per-IP limits; do not blindly trust arbitrary forwarding headers.
+
+## Render compute options
+
+| Setting | Free (testing/demo) | Paid (checked-in Blueprint) |
+|---|---|---|
+| Service | Node web service, Free, one instance | Node web service, Starter, one instance |
+| Root / build | `server` / `npm ci --include=dev && npm run build` | Same |
+| Migration | No pre-deploy command. From a trusted local/CI checkout of the release, run `npm run prisma:migrate` against the demo DB **before** manually deploying | `npm run prisma:migrate` in the pre-deploy step |
+| Start / health | `npm start` / `/health` | Same |
+| Operations | Cold start after 15 minutes idle; no shell, one-off jobs or persistent disk. Run owner CLI from a trusted machine | No free-tier idle spin-down; use trusted local shell or paid service shell for maintenance |
+
+Both options use the external TLS PostgreSQL database and stable secrets below. Use manual deploys; do not put owner credentials in build/start commands. Render's free Postgres expires after 30 days and has no backups; it is not durable production storage. The Free web service has workspace quotas, and in-memory throttles reset on restart. See [Render Free limitations](https://render.com/docs/free) and [pre-deploy commands](https://render.com/docs/deploys#pre-deploy-command).
+
 Use the repository-root `render.yaml`: Node web service, Starter, one instance (rate-limit counters are process-local), root `server`, build `npm ci --include=dev && npm run build`, pre-deploy `npm run prisma:migrate`, start `npm start`, health check `/health`. Render supplies `PORT`. Keep the existing static portfolio service. Route admin traffic over HTTPS on the same site as the API for cookie-based requests.
 
 Set `DATABASE_URL` to the **direct TLS** Neon PostgreSQL connection for this service. Set `ENCRYPTION_KEY` to 32 random bytes encoded as 64 hex characters (keep a protected backup), `CORS_ORIGIN` to the exact HTTPS frontend origin without a trailing slash. Render generates `SESSION_SECRET`; the Blueprint sets `NODE_ENV=production` and `NODE_VERSION=22.16.0`. Neither owner credentials nor JWT keys belong in runtime settings.
