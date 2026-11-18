@@ -1,6 +1,5 @@
 import 'express-async-errors';
 import express from 'express';
-import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
 import session from 'express-session';
@@ -10,7 +9,7 @@ import adminRoutes from './routes/admin';
 import publicRoutes from './routes/public';
 import { loadEnv } from './config/env';
 
-loadEnv();
+const config = loadEnv();
 
 const app = express();
 
@@ -22,11 +21,10 @@ app.use(
     crossOriginEmbedderPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
   })
 );
-app.use(cookieParser());
 app.use(express.json({ limit: '2mb' }));
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN ?? '*',
+    origin: config.CORS_ORIGIN || false,
     credentials: true,
   })
 );
@@ -35,8 +33,8 @@ app.use(
 const sessionTtlMs = 24 * 60 * 60 * 1000; // 24 hours
 app.use(
   session({
-    store: new PrismaSessionStore(sessionTtlMs),
-    secret: process.env.SESSION_SECRET!,
+    store: new PrismaSessionStore(),
+    secret: config.SESSION_SECRET,
     name: 'connect.sid',
     resave: false,
     saveUninitialized: false,

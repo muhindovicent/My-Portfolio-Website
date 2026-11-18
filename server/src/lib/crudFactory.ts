@@ -62,7 +62,7 @@ export function createCrudRouter(options: CrudOptions): Router {
           where,
           skip,
           take: limit,
-          orderBy: defaultOrderBy,
+          orderBy: Object.entries(defaultOrderBy).map(([field, direction]) => ({ [field]: direction })),
         }),
         model.count({ where }),
       ]);

@@ -21,6 +21,7 @@ enum ContactStatus {
 }
 
 model Administrator {
+  sessionVersion Int @default(0)
   id            String      @id @default(cuid())
   email         String      @unique
   passwordHash  String
@@ -256,7 +257,8 @@ model Session {
 model MfaSecret {
   id        String   @id @default(cuid())
   adminId   String   @unique
-  secret    String   // base32-encoded TOTP secret
+  ciphertext String
+  lastStep Int @default(-1)
   enabled   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -313,7 +315,7 @@ model SecurityEvent {
 model PasswordResetToken {
   id        String   @id @default(cuid())
   adminId   String
-  tokenHash String   // bcrypt hash of the reset token
+  tokenHash String @unique
   expiresAt DateTime
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
