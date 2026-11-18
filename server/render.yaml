@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: portfolio-api
+    env: node
+    plan: starter
+    region: ohio
+    buildCommand: "npm install && npm install-scripts approve prisma @prisma/client @prisma/engines esbuild && npx prisma generate && npx prisma migrate deploy && npm run build"
+    startCommand: "npm start"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: portfolio-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        sync: false
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: BASE_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+    autoDeploy: false
+
+databases:
+  - name: portfolio-db
+    plan: starter
+    region: ohio
