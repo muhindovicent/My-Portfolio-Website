@@ -26,7 +26,7 @@ export const requireAdmin: RequestHandler = async (req, res, next) => {
 
   const admin = await db.administrator.findUnique({
     where: { id: adminId },
-    select: { id: true, email: true, role: true, isActive: true },
+    select: { id: true, email: true, role: true, isActive: true, sessionVersion:true },
   });
 
   if (!admin) {
@@ -39,7 +39,10 @@ export const requireAdmin: RequestHandler = async (req, res, next) => {
     return;
   }
 
-  authenticatedReq.admin = admin;
+  if (admin.sessionVersion !== req.session.version || !req.session.mfaVerified) {
+    next(new AppError('Verified owner session required', 403)); return;
+  }
+  authenticatedReq.admin = {id:admin.id,email:admin.email,role:admin.role,isActive:admin.isActive};
   next();
 };
 

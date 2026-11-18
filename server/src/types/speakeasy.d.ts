@@ -6,6 +6,7 @@ declare module 'speakeasy' {
     issuer: string;
   }): string;
   export namespace totp {
+    export function verifyDelta(opts:{secret:string;encoding:'base32';token:string;time:number;window:number}):{delta:number}|undefined;
     export function verify(opts: {
       secret: string;
       encoding: 'base32';

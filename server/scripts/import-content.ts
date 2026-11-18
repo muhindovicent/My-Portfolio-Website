@@ -14,7 +14,6 @@
 
 import { db } from '../src/config/db';
 import type { Prisma } from '@prisma/client';
-import { hashPassword } from '../src/lib/password';
 
 async function main() {
   console.log('[import] Starting content migration from build.py snapshot...');
@@ -22,29 +21,7 @@ async function main() {
   // -------------------------------------------------------------------------
   // 1. Default administrator (one-time). Credentials come from env.
   // -------------------------------------------------------------------------
-  const adminEmail = process.env.ADMIN_EMAIL;
-  const adminPassword = process.env.ADMIN_PASSWORD;
-
-  if (!adminEmail || !adminPassword) {
-    throw new Error('[import] ADMIN_EMAIL and ADMIN_PASSWORD must be set in .env');
-  }
-
-  let admin = await db.administrator.findUnique({ where: { email: adminEmail } });
-  if (!admin) {
-    const passwordHash = await hashPassword(adminPassword);
-    admin = await db.administrator.create({
-      data: {
-        email: adminEmail,
-        passwordHash,
-        name: 'Muhindo Vicent',
-        role: 'ADMIN',
-        isActive: true,
-      },
-    });
-    console.log(`[import] Created administrator: ${adminEmail}`);
-  } else {
-    console.log(`[import] Administrator already exists: ${adminEmail}`);
-  }
+  const admin = await db.administrator.findFirstOrThrow();
 
   // -------------------------------------------------------------------------
   // 2. Personal profile (mirrors build.py hero/about/contact copy)

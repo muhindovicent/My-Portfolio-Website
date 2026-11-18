@@ -34,10 +34,9 @@ export function csrfProtection(req: Request, _res: any, next: any): void {
       adminId: undefined,
       action: 'CSRF_VIOLATION',
       entity: 'Session',
-      entityId: req.sessionID ?? undefined,
       ipAddress: req.ip ?? req.socket.remoteAddress ?? 'unknown',
       userAgent: req.get('user-agent') ?? undefined,
-      metadata: { method: req.method, path: req.path, sessionId: req.sessionID ?? undefined } as any,
+      metadata: { method: req.method },
     }).catch(() => {});
     next(new AppError('CSRF token validation failed', 403));
     return;

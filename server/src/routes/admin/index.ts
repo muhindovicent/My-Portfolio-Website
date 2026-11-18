@@ -12,7 +12,6 @@ import mediaAssetRoutes from './mediaAsset';
 import contactMessageRoutes from './contactMessage';
 import websiteSettingRoutes from './websiteSetting';
 import personalProfileRoutes from './personalProfile';
-import administratorRoutes from './administrator';
 import auditLogRoutes from './auditLog';
 
 const router = Router();
@@ -36,7 +35,6 @@ router.use('/media', mediaAssetRoutes);
 router.use('/contact-messages', contactMessageRoutes);
 router.use('/settings', websiteSettingRoutes);
 router.use('/profile', personalProfileRoutes);
-router.use('/administrators', administratorRoutes);
 router.use('/audit-logs', auditLogRoutes);
 
 export default router;

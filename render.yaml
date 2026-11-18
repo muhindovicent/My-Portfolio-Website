@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: portfolio-api
+    runtime: node
+    plan: starter
+    rootDir: server
+    buildCommand: npm ci --include=dev && npm run build
+    preDeployCommand: npm run prisma:migrate
+    startCommand: npm start
+    healthCheckPath: /health
+    numInstances: 1
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: ORIGIN_SECRET
+        sync: false

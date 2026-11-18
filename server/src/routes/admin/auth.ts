@@ -1,548 +1,73 @@
 import { Request, Router } from 'express';
 import { z } from 'zod';
-import { asyncHandler, AppError } from '../../middleware/error';
-import { validate } from '../../middleware/validate';
-import { requireAdmin, requireMfa, requireRole, AuthenticatedRequest } from '../../middleware/auth';
-import { bruteForceProtection, loginRateLimiter, recordLoginAttempt } from '../../middleware/rateLimit';
-import { csrfMiddleware, generateCsrfToken, getCsrfToken, setCsrfToken } from '../../lib/csrf';
-import { logSecurityEvent } from '../../lib/securityEvent';
-import {
-  generateMfaSecret,
-  generateMfaQrCode,
-  verifyMfaToken,
-  generateBackupCodes,
-} from '../../lib/mfa';
-import { hashPassword, comparePassword } from '../../lib/password';
+import rateLimit from 'express-rate-limit';
+import speakeasy from 'speakeasy';
 import { db } from '../../config/db';
+import { AppError } from '../../middleware/error';
+import { requireAdmin } from '../../middleware/auth';
+import { csrfMiddleware, generateCsrfToken } from '../../lib/csrf';
+import { hashPassword, comparePassword } from '../../lib/password';
+import { digest, password, unseal } from '../../lib/owner';
 
 const router = Router();
-
-const adminLoginSchema = z.object({
-  email: z.string().email('Invalid email'),
-  password: z.string().min(1, 'Password is required'),
+const limit = () => rateLimit({windowMs:900000,max:8,standardHeaders:true,legacyHeaders:false});
+// One owner, one Render instance: a second shared budget also limits distributed guesses.
+const ownerBudget = () => rateLimit({windowMs:900000,max:24,keyGenerator:()=>'owner',standardHeaders:true,legacyHeaders:false});
+const factorLimit = limit(); // Shared budget for TOTP and backup codes.
+const event = (req:Request,action:string,adminId?:string) => db.securityEvent.create({data:{action,entity:'Administrator',ipAddress:req.ip || 'unknown',adminId}});
+const rotate = (req:Request) => new Promise<void>((ok,fail)=>req.session.regenerate(e=>e?fail(e):ok()));
+router.use((_req,res,next)=>{res.set('Cache-Control','no-store');next();});
+router.get('/csrf-token',(req,res)=>res.json({csrfToken:req.session.csrfToken ??= generateCsrfToken()}));
+router.use(csrfMiddleware);
+router.post('/login',limit(),ownerBudget(),async (req,res)=>{
+  const input = z.object({email:z.string().email(),password:z.string().max(1024)}).parse(req.body);
+  const owner = await db.administrator.findUnique({where:{email:input.email.toLowerCase()},include:{mfaSecret:{select:{enabled:true}}}});
+  if (!owner?.isActive || !owner.mfaSecret?.enabled || !await comparePassword(input.password,owner.passwordHash)) {
+    await event(req,'LOGIN_FAILED'); throw new AppError('Invalid credentials',401);
+  }
+  await rotate(req);
+  req.session.adminId=owner.id; req.session.version=owner.sessionVersion;
+  req.session.cookie.maxAge=300000;
+  await event(req,'PASSWORD_VERIFIED',owner.id);
+  res.status(202).json({mfaRequired:true,csrfToken:req.session.csrfToken=generateCsrfToken()});
 });
-
-const mfaVerifySchema = z.object({
-  token: z.string().length(6, 'MFA token must be 6 digits'),
+router.post(['/login/mfa','/login/backup-code'],factorLimit,ownerBudget(),async(req,res)=>{
+  const id=req.session.adminId, version=req.session.version;
+  if (!id || version===undefined || req.session.mfaVerified) throw new AppError('Pending login required',401);
+  const owner=await db.administrator.findFirst({where:{id,isActive:true,sessionVersion:version},include:{mfaSecret:true}});
+  if (!owner?.mfaSecret?.enabled) throw new AppError('Login expired',401);
+  let accepted=false;
+  if(req.path.endsWith('backup-code')) {
+    const code=z.string().regex(/^[0-9a-f]{32}$/).parse(req.body.code);
+    accepted=(await db.backupCode.updateMany({where:{adminId:id,used:false,codeHash:digest(code)},data:{used:true,usedAt:new Date()}})).count===1;
+  } else {
+    const token=z.string().regex(/^\d{6}$/).parse(req.body.token);
+    const step=Math.floor(Date.now()/30000);
+    const delta=speakeasy.totp.verifyDelta({secret:unseal(owner.mfaSecret.ciphertext),encoding:'base32',token,time:step*30,window:1});
+    if(delta) accepted=(await db.mfaSecret.updateMany({where:{id:owner.mfaSecret.id,lastStep:{lt:step+delta.delta}},data:{lastStep:step+delta.delta}})).count===1;
+  }
+  if(!accepted){await event(req,'MFA_FAILED',id);throw new AppError('Invalid verification code',401);}
+  await rotate(req);req.session.adminId=id;req.session.version=version;req.session.mfaVerified=true;
+  req.session.cookie.maxAge=8*3600000;
+  await event(req,'LOGIN',id);
+  res.json({ok:true,csrfToken:req.session.csrfToken=generateCsrfToken()});
 });
-
-const passwordResetSchema = z.object({
-  token: z.string().min(1, 'Reset token is required'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+router.post('/recovery/verify',limit(),ownerBudget(),async(req,res)=>{
+  const input=z.object({token:z.string().regex(/^[0-9a-f]{64}$/),password}).parse(req.body);
+  const record=await db.passwordResetToken.findUnique({where:{tokenHash:digest(input.token)}});
+  if(!record || record.used || record.expiresAt<=new Date()) throw new AppError('Invalid or expired token',400);
+  const passwordHash=await hashPassword(input.password);
+  await db.$transaction(async tx=>{
+    if(!(await tx.passwordResetToken.updateMany({where:{id:record.id,used:false,expiresAt:{gt:new Date()}},data:{used:true}})).count) throw new AppError('Invalid or expired token',400);
+    await tx.administrator.update({where:{id:record.adminId},data:{passwordHash,sessionVersion:{increment:1}}});
+    await tx.session.deleteMany({where:{adminId:record.adminId}});
+    await tx.securityEvent.create({data:{action:'RECOVERY_COMPLETE',adminId:record.adminId,entity:'Administrator',ipAddress:req.ip || 'unknown'}});
+  });res.sendStatus(204);
 });
-
-const provisionOwnerSchema = z.object({
-  email: z.string().email('Invalid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  name: z.string().trim().min(1).max(120).optional(),
+router.get('/me',requireAdmin,(req,res)=>res.json({admin:(req as any).admin}));
+router.post('/logout',requireAdmin,async(req,res)=>{
+  await event(req,'LOGOUT',req.session.adminId);
+  await new Promise<void>((ok,fail)=>req.session.destroy(e=>e?fail(e):ok()));
+  res.clearCookie('connect.sid',{path:'/'}).sendStatus(204);
 });
-
-function getClientIp(req: Request): string {
-  return req.ip ?? req.socket.remoteAddress ?? 'unknown';
-}
-
-function getUserAgent(req: Request): string | undefined {
-  return req.get('user-agent') ?? undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Provision the single authorized owner (one-time, only if no admins exist)
-// ---------------------------------------------------------------------------
-router.post(
-  '/setup',
-  csrfMiddleware,
-  validate({ body: provisionOwnerSchema }),
-  asyncHandler(async (req, res) => {
-    const count = await db.administrator.count();
-    if (count > 0) {
-      throw new AppError('Administrator already initialized', 403);
-    }
-
-    const { email, password, name } = req.body as { email: string; password: string; name?: string };
-    const passwordHash = await hashPassword(password);
-
-    const admin = await db.administrator.create({
-      data: { email, passwordHash, name, role: 'ADMIN', isActive: true },
-      select: { id: true, email: true, name: true, role: true },
-    });
-
-    await logSecurityEvent({
-      adminId: admin.id,
-      action: 'PROVISION_OWNER',
-      entity: 'Administrator',
-      entityId: admin.id,
-      ipAddress: getClientIp(req),
-      userAgent: getUserAgent(req),
-      metadata: { email },
-    });
-
-    res.status(201).json({ ok: true, admin });
-  })
-);
-
-// ---------------------------------------------------------------------------
-// CSRF token endpoint (public, no auth required)
-// ---------------------------------------------------------------------------
-router.get(
-  '/csrf-token',
-  asyncHandler(async (req, res) => {
-    const session = req.session as any;
-    let token = session?.csrfToken;
-    if (!token) {
-      token = generateCsrfToken();
-      session.csrfToken = token;
-    }
-    res.json({ ok: true, csrfToken: token });
-  })
-);
-
-// ---------------------------------------------------------------------------
-// Login
-// ---------------------------------------------------------------------------
-router.post(
-  '/login',
-  loginRateLimiter,
-  bruteForceProtection,
-  csrfMiddleware,
-  validate({ body: adminLoginSchema }),
-  asyncHandler(async (req, res) => {
-    const { email, password } = req.body as { email: string; password: string };
-    const ip = getClientIp(req);
-    const userAgent = getUserAgent(req);
-
-    const admin = await db.administrator.findUnique({
-      where: { email },
-      include: { mfaSecret: true },
-    });
-
-    if (!admin || !(await comparePassword(password, admin.passwordHash))) {
-      await recordLoginAttempt({ email, ipAddress: ip, userAgent, success: false });
-      await logSecurityEvent({
-        adminId: null,
-        action: 'LOGIN_FAILED',
-        entity: 'Administrator',
-        entityId: email,
-        ipAddress: ip,
-        userAgent,
-        metadata: { reason: 'invalid_credentials' },
-      });
-      throw new AppError('Invalid email or password', 401);
-    }
-
-    if (!admin.isActive) {
-      await recordLoginAttempt({ email, ipAddress: ip, userAgent, success: false });
-      await logSecurityEvent({
-        adminId: admin.id,
-        action: 'LOGIN_FAILED',
-        entity: 'Administrator',
-        entityId: admin.id,
-        ipAddress: ip,
-        userAgent,
-        metadata: { reason: 'account_inactive' },
-      });
-      throw new AppError('Administrator account is inactive', 403);
-    }
-
-    await recordLoginAttempt({ email, ipAddress: ip, userAgent, success: true });
-
-    // Regenerate session to prevent session fixation
-    await new Promise<void>((resolve, reject) => {
-      (req.session as any).regenerate((err?: any) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
-    const session = req.session as any;
-    session.adminId = admin.id;
-    session.mfaVerified = false;
-    session.csrfToken = generateCsrfToken();
-    session.save = () => {};
-
-    await logSecurityEvent({
-      adminId: admin.id,
-      action: 'LOGIN',
-      entity: 'Administrator',
-      entityId: admin.id,
-      ipAddress: ip,
-      userAgent,
-      metadata: { mfaRequired: Boolean(admin.mfaSecret?.enabled) },
-    });
-
-    // If MFA is enabled, require MFA verification before granting full access
-    if (admin.mfaSecret?.enabled) {
-      res.status(202).json({
-        ok: true,
-        mfaRequired: true,
-        message: 'MFA verification required',
-        csrfToken: session.csrfToken,
-      });
-      return;
-    }
-
-    session.mfaVerified = true;
-    await db.administrator.update({
-      where: { id: admin.id },
-      data: { lastLoginAt: new Date() },
-    });
-
-    res.json({
-      ok: true,
-      mfaRequired: false,
-      admin: { id: admin.id, email: admin.email, role: admin.role },
-      csrfToken: session.csrfToken,
-    });
-  })
-);
-
-// ---------------------------------------------------------------------------
-// MFA verification during login
-// ---------------------------------------------------------------------------
-router.post(
-  '/login/mfa',
-  csrfMiddleware,
-  validate({ body: mfaVerifySchema }),
-  asyncHandler(async (req, res) => {
-    const session = req.session as any;
-    const adminId = session?.adminId;
-    const token = req.body.token;
-
-    if (!adminId) {
-      throw new AppError('Authentication session not found', 401);
-    }
-    if (session?.mfaVerified) {
-      throw new AppError('MFA already verified', 400);
-    }
-
-    const admin = await db.administrator.findUnique({
-      where: { id: adminId },
-      include: { mfaSecret: true },
-    });
-    if (!admin || !admin.isActive) {
-      throw new AppError('Administrator not found', 404);
-    }
-    if (!admin.mfaSecret?.enabled) {
-      throw new AppError('MFA is not enabled for this account', 400);
-    }
-
-    const valid = verifyMfaToken(admin.mfaSecret.secret, token);
-    if (!valid) {
-      await logSecurityEvent({
-        adminId: admin.id,
-        action: 'MFA_VERIFY',
-        entity: 'Administrator',
-        entityId: admin.id,
-        ipAddress: getClientIp(req),
-        userAgent: getUserAgent(req),
-        metadata: { result: 'invalid_token' },
-      });
-      throw new AppError('Invalid MFA token', 401);
-    }
-
-    session.mfaVerified = true;
-    await db.administrator.update({
-      where: { id: admin.id },
-      data: { lastLoginAt: new Date() },
-    });
-
-    await logSecurityEvent({
-      adminId: admin.id,
-      action: 'MFA_VERIFY',
-      entity: 'Administrator',
-      entityId: admin.id,
-      ipAddress: getClientIp(req),
-      userAgent: getUserAgent(req),
-      metadata: { result: 'success' },
-    });
-
-    res.json({
-      ok: true,
-      admin: { id: admin.id, email: admin.email, role: admin.role },
-      csrfToken: session.csrfToken,
-    });
-  })
-);
-
-// ---------------------------------------------------------------------------
-// MFA setup (generate secret + QR code)
-// ---------------------------------------------------------------------------
-router.post(
-  '/mfa/setup',
-  requireAdmin,
-  csrfMiddleware,
-  asyncHandler(async (req, res) => {
-    const authenticatedReq = req as unknown as AuthenticatedRequest;
-    const admin = await db.administrator.findUnique({
-      where: { id: authenticatedReq.admin!.id },
-      include: { mfaSecret: true },
-    });
-    if (!admin) throw new AppError('Administrator not found', 404);
-
-    let mfaSecret = admin.mfaSecret;
-    if (!mfaSecret) {
-      const secret = generateMfaSecret();
-      mfaSecret = await db.mfaSecret.create({
-        data: { adminId: admin.id, secret, enabled: false },
-      });
-    }
-
-    const qrCode = await generateMfaQrCode(mfaSecret.secret, admin.email);
-    const backupCodes = generateBackupCodes(8);
-    const backupCodeHashes = await Promise.all(
-      backupCodes.map((code) => hashPassword(code))
-    );
-
-    await db.backupCode.createMany({
-      data: backupCodeHashes.map((hash) => ({
-        adminId: admin.id,
-        codeHash: hash,
-      })),
-    });
-
-    await logSecurityEvent({
-      adminId: admin.id,
-      action: 'MFA_SETUP',
-      entity: 'Administrator',
-      entityId: admin.id,
-      ipAddress: getClientIp(req),
-      userAgent: getUserAgent(req),
-      metadata: { backupCodesCount: backupCodes.length },
-    });
-
-    res.json({
-      ok: true,
-      secret: mfaSecret.secret,
-      qrCode,
-      backupCodes, // only returned once; store securely
-      enabled: mfaSecret.enabled,
-    });
-  })
-);
-
-// ---------------------------------------------------------------------------
-// Verify and enable MFA
-// ---------------------------------------------------------------------------
-router.post(
-  '/mfa/verify',
-  requireAdmin,
-  csrfMiddleware,
-  validate({ body: mfaVerifySchema }),
-  asyncHandler(async (req, res) => {
-    const authenticatedReq = req as unknown as AuthenticatedRequest;
-    const token = req.body.token;
-
-    const admin = await db.administrator.findUnique({
-      where: { id: authenticatedReq.admin!.id },
-      include: { mfaSecret: true },
-    });
-    if (!admin || !admin.mfaSecret) {
-      throw new AppError('MFA not set up', 400);
-    }
-
-    const valid = verifyMfaToken(admin.mfaSecret.secret, token);
-    if (!valid) {
-      throw new AppError('Invalid MFA token', 401);
-    }
-
-    await db.mfaSecret.update({
-      where: { id: admin.mfaSecret.id },
-      data: { enabled: true },
-    });
-
-    await logSecurityEvent({
-      adminId: admin.id,
-      action: 'MFA_VERIFY',
-      entity: 'Administrator',
-      entityId: admin.id,
-      ipAddress: getClientIp(req),
-      userAgent: getUserAgent(req),
-      metadata: { result: 'enabled' },
-    });
-
-    res.json({ ok: true, mfaEnabled: true });
-  })
-);
-
-// ---------------------------------------------------------------------------
-// Disable MFA
-// ---------------------------------------------------------------------------
-router.post(
-  '/mfa/disable',
-  requireAdmin,
-  requireMfa,
-  csrfMiddleware,
-  asyncHandler(async (req, res) => {
-    const authenticatedReq = req as unknown as AuthenticatedRequest;
-
-    await db.mfaSecret.deleteMany({
-      where: { adminId: authenticatedReq.admin!.id },
-    });
-    await db.backupCode.deleteMany({
-      where: { adminId: authenticatedReq.admin!.id },
-    });
-
-    await logSecurityEvent({
-      adminId: authenticatedReq.admin!.id,
-      action: 'MFA_DISABLE',
-      entity: 'Administrator',
-      entityId: authenticatedReq.admin!.id,
-      ipAddress: getClientIp(req),
-      userAgent: getUserAgent(req),
-      metadata: {},
-    });
-
-    res.json({ ok: true, mfaEnabled: false });
-  })
-);
-
-// ---------------------------------------------------------------------------
-// Logout
-// ---------------------------------------------------------------------------
-router.post(
-  '/logout',
-  requireAdmin,
-  csrfMiddleware,
-  asyncHandler(async (req, res) => {
-    const authenticatedReq = req as unknown as AuthenticatedRequest;
-    const adminId = authenticatedReq.admin!.id;
-    const sid = req.sessionID;
-
-    // Revoke the session from the database
-    if (sid) {
-      await db.session.delete({ where: { sid } }).catch(() => {});
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      (req.session as any).destroy((err?: any) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
-    res.clearCookie('connect.sid', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-    });
-
-    await logSecurityEvent({
-      adminId,
-      action: 'LOGOUT',
-      entity: 'Administrator',
-      entityId: adminId,
-      ipAddress: getClientIp(req),
-      userAgent: getUserAgent(req),
-      metadata: { sessionId: sid },
-    });
-
-    res.json({ ok: true });
-  })
-);
-
-// ---------------------------------------------------------------------------
-// Password recovery request
-// ---------------------------------------------------------------------------
-router.post(
-  '/recovery',
-  loginRateLimiter,
-  bruteForceProtection,
-  csrfMiddleware,
-  validate({ body: z.object({ email: z.string().email() }) }),
-  asyncHandler(async (req, res) => {
-    const { email } = req.body as { email: string };
-    const admin = await db.administrator.findUnique({ where: { email } });
-
-    // Always return success to prevent email enumeration
-    if (!admin) {
-      res.json({ ok: true, message: 'If the account exists, a recovery token has been generated.' });
-      return;
-    }
-
-    const bytes = crypto.getRandomValues(new Uint8Array(32));
-    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-    const passwordHash = await hashPassword(token);
-
-    await db.passwordResetToken.create({
-      data: {
-        adminId: admin.id,
-        tokenHash: passwordHash,
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
-      },
-    });
-
-    await logSecurityEvent({
-      adminId: admin.id,
-      action: 'RECOVERY_REQUEST',
-      entity: 'Administrator',
-      entityId: admin.id,
-      ipAddress: getClientIp(req),
-      userAgent: getUserAgent(req),
-      metadata: {},
-    });
-
-    // In production, email this token. For this implementation, return it
-    // so the admin can complete recovery via /admin/recovery/verify.
-    res.json({
-      ok: true,
-      recoveryToken: token,
-      message: 'Recovery token generated. Use it at /admin/recovery/verify to reset your password.',
-    });
-  })
-);
-
-// ---------------------------------------------------------------------------
-// Verify recovery token and reset password
-// ---------------------------------------------------------------------------
-router.post(
-  '/recovery/verify',
-  csrfMiddleware,
-  validate({ body: passwordResetSchema }),
-  asyncHandler(async (req, res) => {
-    const { token, password } = req.body as { token: string; password: string };
-
-    const resetToken = await db.passwordResetToken.findFirst({
-      where: {
-        used: false,
-        expiresAt: { gt: new Date() },
-      },
-      include: { admin: true },
-    });
-
-    if (!resetToken) {
-      throw new AppError('Invalid or expired recovery token', 400);
-    }
-
-    const valid = await comparePassword(token, resetToken.tokenHash);
-    if (!valid) {
-      throw new AppError('Invalid or expired recovery token', 400);
-    }
-
-    const newHash = await hashPassword(password);
-
-    await db.$transaction([
-      db.administrator.update({
-        where: { id: resetToken.adminId },
-        data: { passwordHash: newHash },
-      }),
-      db.passwordResetToken.update({
-        where: { id: resetToken.id },
-        data: { used: true },
-      }),
-    ]);
-
-    await logSecurityEvent({
-      adminId: resetToken.adminId,
-      action: 'RECOVERY_COMPLETE',
-      entity: 'Administrator',
-      entityId: resetToken.adminId,
-      ipAddress: getClientIp(req),
-      userAgent: getUserAgent(req),
-      metadata: {},
-    });
-
-    res.json({ ok: true, message: 'Password reset successful.' });
-  })
-);
-
 export default router;

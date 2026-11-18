@@ -1,48 +1,12 @@
+import 'dotenv/config';
 import { z } from 'zod';
-
-const envSchema = z.object({
-  DATABASE_URL: z.string().url('DATABASE_URL must be a valid PostgreSQL connection string'),
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-  JWT_ACCESS_TTL: z.string().default('15m'),
-  JWT_REFRESH_TTL: z.string().default('7d'),
-  ADMIN_EMAIL: z.string().email('ADMIN_EMAIL must be a valid email'),
-  ADMIN_PASSWORD: z.string().min(8, 'ADMIN_PASSWORD must be at least 8 characters'),
-  COOKIE_SECRET: z.string().min(32, 'COOKIE_SECRET must be at least 32 characters'),
-  SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.string().transform(Number).default('4000'),
-  BASE_URL: z.string().default(''),
-  CORS_ORIGIN: z.string().optional(),
-});
-
-type Env = z.infer<typeof envSchema>;
-
-let env: Env;
-
-export function loadEnv(): Env {
-  if (env) return env;
-  const parsed = envSchema.safeParse(process.env);
-  if (!parsed.success) {
-    const missing = Object.keys(parsed.error.flatten().fieldErrors);
-    throw new Error(
-      `[config/env] Missing or invalid environment variables: ${missing.join(', ')}. ` +
-      'Copy .env.example to .env and populate required values.'
-    );
-  }
-  env = parsed.data;
-  return env;
+const schema = z.object({ DATABASE_URL:z.string().url(), SESSION_SECRET:z.string().min(32),
+  ENCRYPTION_KEY:z.string().regex(/^[0-9a-f]{64}$/i), PORT:z.coerce.number().int().min(0).max(65535).default(4000),
+  ORIGIN_SECRET:z.string().min(32).optional(), NODE_ENV:z.enum(['production','development','test']).default('development'), CORS_ORIGIN:z.string().url().optional() });
+export function loadEnv() {
+  const config = schema.parse(process.env);
+  if (config.NODE_ENV === 'production' && !config.ORIGIN_SECRET) throw Error('ORIGIN_SECRET is required behind the Vercel proxy');
+  if (config.NODE_ENV === 'production' && (!config.CORS_ORIGIN || !config.CORS_ORIGIN.startsWith('https://') || new URL(config.CORS_ORIGIN).origin !== config.CORS_ORIGIN || config.CORS_ORIGIN.includes('*'))) throw Error('CORS_ORIGIN must be an exact HTTPS origin');
+  return config;
 }
-
-export function getEnv(): Env {
-  if (!env) return loadEnv();
-  return env;
-}
-
-export const requiredEnv = (key: keyof Env): string => {
-  const e = getEnv();
-  const value = e[key];
-  if (value === undefined || value === null || value === '') {
-    throw new Error(`[config/env] Required environment variable ${key} is not set`);
-  }
-  return String(value);
-};
+export const getEnv = loadEnv;
