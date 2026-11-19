@@ -1,11 +1,13 @@
 import 'express-async-errors';
 import express from 'express';
+import path from 'path';
 import { timingSafeEqual } from 'node:crypto';
 import cors from 'cors';
 import helmet from 'helmet';
 import session from 'express-session';
 import { PrismaSessionStore } from './lib/sessionStore';
 import { errorHandler, notFoundHandler } from './middleware/error';
+import { requireStudioPage } from './middleware/auth';
 import adminRoutes from './routes/admin';
 import publicRoutes from './routes/public';
 import { loadEnv } from './config/env';
@@ -69,6 +71,37 @@ app.get('/health', (_req, res) => {
 // API routes
 app.use('/api/admin', adminRoutes);
 app.use('/api/public', publicRoutes);
+
+// Portfolio Studio — auth-guarded SPA served by the API origin.
+const studioDir = path.resolve(process.cwd(), 'public', 'studio');
+
+app.use('/admin', (req, res, next) => {
+  if (req.path.startsWith('/assets/')) return next();
+  if (config.NODE_ENV === 'production') {
+    const supplied = Buffer.from(req.get('x-origin-secret') || '');
+    const expected = Buffer.from(config.ORIGIN_SECRET!);
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      res.sendStatus(403);
+      return;
+    }
+  }
+  next();
+});
+
+app.use(
+  '/admin/assets',
+  express.static(path.join(studioDir, 'assets'), { maxAge: '1h', fallthrough: false })
+);
+
+app.get('/admin/login', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(studioDir, 'index.html'));
+});
+
+app.get(['/admin', '/admin/*'], requireStudioPage, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(studioDir, 'index.html'));
+});
 
 // 404
 app.use(notFoundHandler);

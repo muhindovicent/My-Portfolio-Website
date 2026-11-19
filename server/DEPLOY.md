@@ -1,5 +1,11 @@
 # Render: Phase 3B
 
+## Portfolio Studio
+
+The authenticated admin UI is served by the same Node service at `/admin` (login at `/admin/login`). It is a dependency-free SPA in `server/public/studio/` that reads live data from `/api/admin/dashboard`, `/api/admin/dashboard/notifications`, `/api/admin/dashboard/search` and the existing CRUD endpoints. Statistics and activity are read from the database; the UI contains no placeholder metrics.
+
+`vercel.mjs` proxies `/api/(.*)`, `/admin` and `/admin/(.*)` to `RENDER_API_ORIGIN` with the shared `x-origin-secret`. Set `RENDER_API_ORIGIN` to the Render service's exact `https://….onrender.com` origin and set the same `ORIGIN_SECRET` on both services. Without `RENDER_API_ORIGIN` Vercel serves only the static portfolio and no admin routes are exposed. Keep `/admin` behind HTTPS: the session cookie is `Secure; HttpOnly; SameSite=Lax` and host-only. Never point the browser directly at the Render origin for Studio pages.
+
 ## Same-origin routing
 
 Vercel project root = repository root, framework = Other, no build command, output = `dist`. `vercel.mjs` enables an external rewrite **only** when `RENDER_API_ORIGIN` is set to your owned Render service's exact `https://….onrender.com` origin. With no upstream it serves the static portfolio. Configure the same high-entropy `ORIGIN_SECRET` (at least 32 characters) as a private environment variable on both services. Never expose it to frontend code. Use separate preview services, databases and keys; do not give untrusted PR previews access to production settings.

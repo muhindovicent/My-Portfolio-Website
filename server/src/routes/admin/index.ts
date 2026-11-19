@@ -13,6 +13,7 @@ import contactMessageRoutes from './contactMessage';
 import websiteSettingRoutes from './websiteSetting';
 import personalProfileRoutes from './personalProfile';
 import auditLogRoutes from './auditLog';
+import dashboardRoutes from './dashboard';
 
 const router = Router();
 
@@ -36,5 +37,6 @@ router.use('/contact-messages', contactMessageRoutes);
 router.use('/settings', websiteSettingRoutes);
 router.use('/profile', personalProfileRoutes);
 router.use('/audit-logs', auditLogRoutes);
+router.use('/dashboard', dashboardRoutes);
 
 export default router;
