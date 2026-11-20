@@ -8,6 +8,14 @@ The authenticated admin UI is served by the same Node service at `/admin` (login
 
 ## Same-origin routing
 
+### Phase 4A staging configuration
+
+Use a dedicated staging Render service (Node 22, `server` root, manual deploys, `/health`) and a separate Neon project initialized from migrations with synthetic content only. Do not clone production records. Pair it with one access-restricted staging frontend hostname. Set `NODE_ENV=production` on staging so secure cookies, origin checks and normal rate limits are exercised.
+
+Scope the direct TLS `DATABASE_URL`, independently generated `SESSION_SECRET`, `ENCRYPTION_KEY` and `ORIGIN_SECRET` to staging only. Set staging `CORS_ORIGIN` to the staging frontend origin; set that frontend's `RENDER_API_ORIGIN` to the staging Render origin and share only the staging `ORIGIN_SECRET` between those two services. Keep automatic deploys disabled and exclude these values from PR previews and CI. Before any authorized manual migration, verify the target service, database hostname and role against the staging project. Never run the destructive test fixtures against staging.
+
+The Phase 4A GitHub workflow only verifies the feature branch: it creates disposable runner-local PostgreSQL databases, runs both integration suites, and serves the built application on loopback for Chromium, Firefox and WebKit. It needs no hosting credentials or persistent owner.
+
 Vercel project root = repository root, framework = Other, no build command, output = `dist`. `vercel.mjs` enables an external rewrite **only** when `RENDER_API_ORIGIN` is set to your owned Render service's exact `https://….onrender.com` origin. With no upstream it serves the static portfolio. Configure the same high-entropy `ORIGIN_SECRET` (at least 32 characters) as a private environment variable on both services. Never expose it to frontend code. Use separate preview services, databases and keys; do not give untrusted PR previews access to production settings.
 
 The browser uses relative `/api/...` URLs on the portfolio origin. Vercel forwards the path, method, body, cookies and `X-CSRF-Token`, overwriting `x-origin-secret`. Render rejects direct production API requests without that secret; `/health` remains public. Set Render `CORS_ORIGIN` to the exact **Vercel** HTTPS origin. The host-only `Secure; HttpOnly; SameSite=Lax` cookie belongs to the browser-facing origin; do not set a Render cookie domain or redirect clients to Render. API responses are `private, no-store`; do not add CDN cache rules. Keep authentication, MFA, CSRF and rate limits active behind the proxy. See [Vercel external rewrites and origin restriction](https://vercel.com/docs/rewrites#restricting-your-origin-to-vercel-traffic).

@@ -29,16 +29,15 @@ export default defineConfig({
       use: { ...devices['Desktop Safari'] },
     },
   ],
-  webServer: process.env.CI
-    ? undefined
-    : {
-        command: 'npm run dev',
+  webServer: {
+        command: process.env.CI ? 'npm start' : 'npm run dev',
         url: `${baseURL}/health`,
         timeout: 120 * 1000,
         reuseExistingServer: !process.env.CI,
         env: {
           PORT: String(port),
           NODE_ENV: 'test',
+          STUDIO_BROWSER_TEST: '1',
           SESSION_SECRET: 'browser-test-session-secret-at-least-32-chars',
           ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         },
