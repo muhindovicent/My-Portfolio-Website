@@ -29,6 +29,7 @@ async function cleanDatabase(db) {
     await db.administrator.delete({ where: { id: owner.id } });
   }
   await db.project.deleteMany({ where: { OR: [{ slug: FIXTURE_SLUG }, { slug: { startsWith: 'browser-test-' } }] } });
+  await db.websiteSetting.deleteMany({ where: { key: { startsWith: 'browser.test.' } } });
 }
 
 async function seedDatabase() {

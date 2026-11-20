@@ -1020,7 +1020,9 @@ async function renderMessages() {
 async function renderSettings() {
   view.append(pageHeader('Settings', 'Key-value settings used by your public site and Studio.'));
   const container = h('div', {});
-  view.append(container);
+  view.append(h('div', { class: 'toolbar' },
+    h('button', { class: 'button primary', type: 'button', onclick: () => editSetting() }, icon('plus'), ' New setting'),
+  ), container);
 
   try {
     const response = await api.list('settings', { page: 1, limit: 100 });
@@ -1042,9 +1044,6 @@ async function renderSettings() {
         )),
       ),
     }));
-    container.append(h('div', { class: 'toolbar' },
-      h('button', { class: 'button primary', type: 'button', onclick: () => editSetting() }, icon('plus'), ' New setting'),
-    ));
   } catch (error) {
     clear(container);
     container.append(stateView({ status: 'error', title: 'Could not load settings', message: error.message }));
@@ -1072,7 +1071,7 @@ async function renderSettings() {
         await api.create('settings', { key, value });
         close();
         toast('Setting saved.');
-        renderSettings();
+        await render();
       } catch (error) {
         toast(error.message, 'error');
       }

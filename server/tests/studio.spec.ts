@@ -104,6 +104,57 @@ test.describe('Portfolio Studio — project CRUD', () => {
   });
 });
 
+test.describe('Portfolio Studio — settings', () => {
+  test('creates the first setting without duplicating the page', async ({ authenticatedPage, seededDb }) => {
+    void seededDb;
+    const page = authenticatedPage;
+    await page.goto('/admin/settings');
+
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toHaveCount(1);
+    await expect(page.getByText('No settings')).toBeVisible();
+    await page.getByRole('button', { name: /New setting/ }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Key').fill('browser.test.first');
+    await dialog.getByLabel('Value (JSON)').fill('{"enabled":true}');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+
+    await expect(page.locator('.toast.success')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toHaveCount(1);
+    await expect(page.locator('table')).toHaveCount(1);
+    await expect(page.getByText('browser.test.first')).toBeVisible();
+  });
+});
+
+test.describe('Portfolio Studio — confirmation dismissal', () => {
+  for (const dismissal of ['Escape', 'backdrop', 'close button'] as const) {
+    test(`resolves a canceled confirmation via ${dismissal}`, async ({ authenticatedPage }) => {
+      const page = authenticatedPage;
+      const row = page.locator('tr', { hasText: FIXTURE_SLUG });
+      await row.getByRole('button', { name: /Delete Project/ }).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+
+      if (dismissal === 'Escape') {
+        await page.keyboard.press('Escape');
+      } else if (dismissal === 'backdrop') {
+        await page.locator('.modal-backdrop').click({ position: { x: 4, y: 4 } });
+      } else {
+        await dialog.getByRole('button', { name: 'Close dialog' }).click();
+      }
+
+      await expect(dialog).toHaveCount(0);
+      await expect(row).toBeVisible();
+
+      await row.getByRole('button', { name: /Delete Project/ }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+      await expect(page.locator('.toast.success')).toBeVisible();
+      await expect(row).toHaveCount(0);
+    });
+  }
+});
+
 test.describe('Portfolio Studio — security page', () => {
   test('shows MFA and session information', async ({ authenticatedPage }) => {
     const page = authenticatedPage;

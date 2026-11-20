@@ -116,14 +116,15 @@ export function toast(message, type = 'success') {
   }, 4200);
 }
 
-export function modal({ title, content, actions = [], wide = false }) {
+export function modal({ title, content, actions = [], wide = false, onClose = null }) {
   const root = document.getElementById('modal-root');
   const previousFocus = document.activeElement;
   let closeImpl = null;
   const close = () => {
     if (!closeImpl) return;
-    closeImpl();
+    const impl = closeImpl;
     closeImpl = null;
+    impl();
   };
   const onKey = (event) => {
     if (event.key === 'Escape') {
@@ -148,6 +149,7 @@ export function modal({ title, content, actions = [], wide = false }) {
     document.body.style.overflow = '';
     if (previousFocus && previousFocus.focus) previousFocus.focus();
     document.removeEventListener('keydown', onKey);
+    if (onClose) onClose();
   };
   backdrop.addEventListener('mousedown', (event) => {
     if (event.target === backdrop) close();
@@ -178,14 +180,18 @@ export function confirmDialog({ title, message, confirmLabel = 'Delete', require
         input = h('input', { id: 'confirm-input', type: 'text', autocomplete: 'off' }),
       ));
     }
-    let modalClose = null;
+    let dialog = null;
+    let settled = false;
     const finish = (value) => {
-      modalClose?.();
+      if (settled) return;
+      settled = true;
+      dialog?.close();
       resolve(value);
     };
-    modalClose = modal({
+    dialog = modal({
       title,
       content,
+      onClose: () => finish(false),
       actions: [
         h('button', { class: 'button ghost', type: 'button', onclick: () => finish(false) }, 'Cancel'),
         h('button', {
@@ -200,7 +206,7 @@ export function confirmDialog({ title, message, confirmLabel = 'Delete', require
           },
         }, confirmLabel),
       ],
-    }).close;
+    });
   });
 }
 
