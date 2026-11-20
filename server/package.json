@@ -10,6 +10,7 @@
     "start": "node dist/src/server.js",
     "owner": "node dist/scripts/owner.js",
     "test:integration": "node --test integration/auth.cjs",
+    "test:integration:studio": "node --test integration/studio-suite.cjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio",

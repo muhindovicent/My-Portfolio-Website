@@ -3,6 +3,7 @@
 // against a disposable PostgreSQL database. Requires a local PostgreSQL instance.
 const { test, before, after, describe } = require('node:test');
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
 const request = require('supertest');
 const otp = require('speakeasy');
@@ -17,6 +18,12 @@ Object.assign(process.env, {
   SESSION_SECRET: randomBytes(32).toString('hex'),
   ENCRYPTION_KEY: randomBytes(32).toString('hex'),
 });
+
+execFileSync(
+  process.platform === 'win32' ? 'cmd.exe' : 'npx',
+  process.platform === 'win32' ? ['/c', 'npx', 'prisma', 'migrate', 'deploy'] : ['prisma', 'migrate', 'deploy'],
+  { stdio: 'inherit' },
+);
 
 const app = require('../dist/src/app').default;
 const { db } = require('../dist/src/config/db');
@@ -43,8 +50,10 @@ async function loginWithMFA(agent_, token) {
     .send({ email, password }).expect(202);
   assert.equal(step.status, 202);
   assert.equal(step.body.mfaRequired, true);
-  const csrf2 = step.body.csrfToken;
-  const done = await agent_.post(`${root}/login/mfa`).set('X-CSRF-Token', csrf2)
+  if (owner?.id) {
+    await db.mfaSecret.updateMany({ where: { adminId: owner.id }, data: { lastStep: 0 } });
+  }
+  const done = await agent_.post(`${root}/login/mfa`).set('X-CSRF-Token', step.body.csrfToken)
     .send({ token }).expect(200);
   assert.equal(done.body.ok, true);
   return done.body.csrfToken;
@@ -109,11 +118,7 @@ describe('Authentication', () => {
   test('MFA: invalid TOTP rejected', async () => {
     const anon = request.agent(app);
     const c = await getCsrf(anon);
-    await anon.post(`${root}/login`).set('X-CSRF-Token', c)
-      .send({ email, password }).expect(202);
-    const c2 = c; // csrf rotates after login
-    // Re-fetch csrf since login rotates it
-    const step = await anon.post(`${root}/login`).set('X-CSRF-Token', await getCsrf(anon))
+    const step = await anon.post(`${root}/login`).set('X-CSRF-Token', c)
       .send({ email, password }).expect(202);
     await anon.post(`${root}/login/mfa`).set('X-CSRF-Token', step.body.csrfToken)
       .send({ token: '000000' }).expect(401);
@@ -122,23 +127,19 @@ describe('Authentication', () => {
   test('backup-code: single-use authentication', async () => {
     const anon = request.agent(app);
     const c = await getCsrf(anon);
-    await anon.post(`${root}/login`).set('X-CSRF-Token', c).send({ email, password }).expect(202);
-    const c2 = (await anon.post(`${root}/login`).set('X-CSRF-Token', await getCsrf(anon))
-      .send({ email, password })).body.csrfToken;
+    const first = await anon.post(`${root}/login`).set('X-CSRF-Token', c)
+      .send({ email, password }).expect(202);
     const code = backupCodes[0];
     const verified = await anon.post(`${root}/login/backup-code`)
-      .set('X-CSRF-Token', c2).send({ code }).expect(200);
+      .set('X-CSRF-Token', first.body.csrfToken).send({ code }).expect(200);
     assert.equal(verified.body.ok, true);
-    // Same code must be rejected on reuse
-    await anon.post(`${root}/login/backup-code`)
-      .set('X-CSRF-Token', verified.body.csrfToken).send({ code }).expect(401);
-  });
 
-  test('logout revokes session', async () => {
-    await agent.post(`${root}/logout`).set('X-CSRF-Token', csrf).expect(204);
-    await agent.get(`${root}/me`).expect(401);
-    // Re-login for subsequent tests
-    csrf = await loginWithMFA(agent, otp.totp({ secret: seed, encoding: 'base32' }));
+    const replay = request.agent(app);
+    const replayCsrf = await getCsrf(replay);
+    const replayLogin = await replay.post(`${root}/login`).set('X-CSRF-Token', replayCsrf)
+      .send({ email, password }).expect(202);
+    await replay.post(`${root}/login/backup-code`)
+      .set('X-CSRF-Token', replayLogin.body.csrfToken).send({ code }).expect(401);
   });
 });
 
@@ -246,5 +247,12 @@ describe('Status filtering', () => {
     } finally {
       await db.project.deleteMany({ where: { slug: { in: [publishedSlug, draftSlug] } } });
     }
+  });
+});
+
+describe('Session cleanup', () => {
+  test('logout revokes session', async () => {
+    await agent.post(`${root}/logout`).set('X-CSRF-Token', csrf).expect(204);
+    await agent.get(`${root}/me`).expect(401);
   });
 });

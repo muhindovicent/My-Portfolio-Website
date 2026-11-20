@@ -1,5 +1,7 @@
 // Small DOM and formatting helpers shared by every Studio page.
 
+let modalSequence = 0;
+
 export function h(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -117,11 +119,11 @@ export function toast(message, type = 'success') {
 export function modal({ title, content, actions = [], wide = false }) {
   const root = document.getElementById('modal-root');
   const previousFocus = document.activeElement;
+  let closeImpl = null;
   const close = () => {
-    backdrop.remove();
-    document.body.style.overflow = '';
-    if (previousFocus && previousFocus.focus) previousFocus.focus();
-    document.removeEventListener('keydown', onKey);
+    if (!closeImpl) return;
+    closeImpl();
+    closeImpl = null;
   };
   const onKey = (event) => {
     if (event.key === 'Escape') {
@@ -141,13 +143,27 @@ export function modal({ title, content, actions = [], wide = false }) {
       h('div', { class: 'modal-footer' }, actions),
     ),
   );
+  closeImpl = () => {
+    backdrop.remove();
+    document.body.style.overflow = '';
+    if (previousFocus && previousFocus.focus) previousFocus.focus();
+    document.removeEventListener('keydown', onKey);
+  };
   backdrop.addEventListener('mousedown', (event) => {
     if (event.target === backdrop) close();
   });
+  const form = backdrop.querySelector('.modal-body form');
+  if (form && !form.id) form.id = `studio-modal-form-${++modalSequence}`;
+  if (form) {
+    backdrop.querySelectorAll('.modal-footer button[type="submit"]').forEach((button) => {
+      if (!button.hasAttribute('form')) button.setAttribute('form', form.id);
+    });
+  }
   document.addEventListener('keydown', onKey);
   document.body.style.overflow = 'hidden';
   root.append(backdrop);
-  const first = backdrop.querySelector('input, select, textarea, button');
+  const first = backdrop.querySelector('.modal-body input, .modal-body select, .modal-body textarea')
+    || backdrop.querySelector('.modal-footer button, button');
   if (first) first.focus();
   return { close, node: backdrop };
 }
@@ -162,11 +178,12 @@ export function confirmDialog({ title, message, confirmLabel = 'Delete', require
         input = h('input', { id: 'confirm-input', type: 'text', autocomplete: 'off' }),
       ));
     }
+    let modalClose = null;
     const finish = (value) => {
-      api_close.close();
+      modalClose?.();
       resolve(value);
     };
-    const api_close = modal({
+    modalClose = modal({
       title,
       content,
       actions: [
@@ -183,7 +200,7 @@ export function confirmDialog({ title, message, confirmLabel = 'Delete', require
           },
         }, confirmLabel),
       ],
-    });
+    }).close;
   });
 }
 

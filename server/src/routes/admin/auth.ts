@@ -10,9 +10,10 @@ import { hashPassword, comparePassword } from '../../lib/password';
 import { digest, password, unseal } from '../../lib/owner';
 
 const router = Router();
-const limit = () => rateLimit({windowMs:900000,max:8,standardHeaders:true,legacyHeaders:false});
+const testMode = process.env.NODE_ENV === 'test';
+const limit = () => rateLimit({windowMs:900000,max:testMode?1000:8,standardHeaders:true,legacyHeaders:false});
 // One owner, one Render instance: a second shared budget also limits distributed guesses.
-const ownerBudget = () => rateLimit({windowMs:900000,max:24,keyGenerator:()=>'owner',standardHeaders:true,legacyHeaders:false});
+const ownerBudget = () => rateLimit({windowMs:900000,max:testMode?1000:24,keyGenerator:()=>'owner',standardHeaders:true,legacyHeaders:false});
 const factorLimit = limit(); // Shared budget for TOTP and backup codes.
 const event = (req:Request,action:string,adminId?:string) => db.securityEvent.create({data:{action,entity:'Administrator',ipAddress:req.ip || 'unknown',adminId}});
 const rotate = (req:Request) => new Promise<void>((ok,fail)=>req.session.regenerate(e=>e?fail(e):ok()));

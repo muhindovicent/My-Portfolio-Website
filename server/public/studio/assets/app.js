@@ -365,7 +365,7 @@ async function renderNotifications() {
   clear(pop);
   pop.append(h('h3', {}, 'Notifications'));
   try {
-    const data = await api.notifications();
+    const data = (await api.notifications()).data;
     if (!data.messages.length && !data.security.length) {
       pop.append(h('div', { class: 'notification-item' }, 'You are all caught up.'));
       return;
@@ -549,18 +549,20 @@ async function openEditor(resource, row = null) {
     })),
   );
 
+  let closeEditor = () => {};
   const { close } = modal({
     title: row ? `Edit ${config.label}` : `New ${config.label}`,
     content: form,
     actions: [
-      h('button', { class: 'button ghost', type: 'button', onclick: close }, 'Cancel'),
+      h('button', { class: 'button ghost', type: 'button', onclick: () => closeEditor() }, 'Cancel'),
       h('button', { class: 'button primary', type: 'submit' }, row ? 'Save changes' : 'Create'),
     ],
   });
+  closeEditor = close;
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const submit = form.querySelector('button[type="submit"]');
+    const submit = document.querySelector(`button[form="${form.id}"][type="submit"]`) || form.querySelector('button[type="submit"]');
     submit.disabled = true;
     submit.textContent = 'Saving…';
     try {
@@ -680,7 +682,7 @@ async function renderDashboard() {
   view.append(stateView({ status: 'loading', title: 'Loading your studio…' }));
   let data;
   try {
-    data = await api.dashboard();
+    data = (await api.dashboard()).data;
   } catch (error) {
     clear(view);
     view.append(stateView({
@@ -877,14 +879,16 @@ async function renderMedia() {
     const nameField = field({ label: 'Filename', name: 'filename', required: true });
     const typeField = field({ label: 'MIME type', name: 'mimeType', placeholder: 'image/jpeg' });
     const form = h('form', { class: 'form-grid', novalidate: '' }, urlField, altField, nameField, typeField);
+    let closeMedia = () => {};
     const { close } = modal({
       title: 'Add media',
       content: form,
       actions: [
-        h('button', { class: 'button ghost', type: 'button', onclick: close }, 'Cancel'),
+        h('button', { class: 'button ghost', type: 'button', onclick: () => closeMedia() }, 'Cancel'),
         h('button', { class: 'button primary', type: 'submit' }, 'Add'),
       ],
     });
+    closeMedia = close;
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       try {
@@ -1050,14 +1054,16 @@ async function renderSettings() {
     const keyField = field({ label: 'Key', name: 'key', required: true, value: row?.key });
     const valueField = field({ label: 'Value (JSON)', name: 'value', type: 'textarea', required: true, value: row ? JSON.stringify(row.value, null, 2) : '' });
     const form = h('form', { novalidate: '' }, keyField, valueField);
+    let closeSetting = () => {};
     const { close } = modal({
       title: row ? 'Edit setting' : 'New setting',
       content: form,
       actions: [
-        h('button', { class: 'button ghost', type: 'button', onclick: close }, 'Cancel'),
+        h('button', { class: 'button ghost', type: 'button', onclick: () => closeSetting() }, 'Cancel'),
         h('button', { class: 'button primary', type: 'submit' }, 'Save'),
       ],
     });
+    closeSetting = close;
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       try {
@@ -1086,7 +1092,7 @@ async function renderSecurity() {
   try {
     const [me, notifications] = await Promise.all([
       api.me().catch(() => null),
-      api.notifications().catch(() => ({ security: [] })),
+      api.notifications().then((response) => response.data).catch(() => ({ security: [] })),
     ]);
     clear(container);
     const admin = me && me.admin ? me.admin : session;
@@ -1150,7 +1156,7 @@ async function renderSearch() {
   clear(container);
   container.append(stateView({ status: 'loading', title: 'Searching…' }));
   try {
-    const data = await api.search(q);
+    const data = (await api.search(q)).data;
     clear(container);
     if (!data.total) {
       container.append(stateView({ status: 'empty', title: 'No matches', message: `Nothing matched “${q}”.` }));
@@ -1190,8 +1196,13 @@ async function renderLogin() {
   const emailField = field({ label: 'Email', name: 'email', type: 'email', required: true, value: '' });
   const passwordField = field({ label: 'Password', name: 'password', type: 'password', required: true, value: '' });
   const tokenField = field({ label: 'Authentication code', name: 'token', required: true, value: '', hint: 'Enter the 6-digit code, or a backup code.' });
-  const form = h('form', { novalidate: '' }, emailField, passwordField, tokenField);
-  const submit = h('button', { class: 'button primary', type: 'submit', style: 'width:100%;margin-top:8px' }, 'Continue');
+  const form = h('form', { id: 'login-form', novalidate: '' }, emailField, passwordField, tokenField);
+  const submit = h('button', {
+    class: 'button primary',
+    type: 'submit',
+    form: 'login-form',
+    style: 'width:100%;margin-top:8px',
+  }, 'Continue');
   const message = h('p', { class: 'mfa-note', role: 'alert' });
   const shell = h('div', { class: 'login-card card' },
     h('div', { class: 'brand' }, h('span', { class: 'brand-mark', 'aria-hidden': 'true' }, 'P'), h('strong', {}, 'Portfolio Studio')),
@@ -1208,6 +1219,7 @@ async function renderLogin() {
     emailField.style.display = isFactor ? 'none' : '';
     passwordField.style.display = isFactor ? 'none' : '';
     tokenField.style.display = isFactor ? '' : 'none';
+    submit.disabled = false;
     submit.textContent = isFactor ? 'Verify and sign in' : 'Continue';
     message.textContent = '';
   }
@@ -1229,6 +1241,7 @@ async function renderLogin() {
           body,
           headers: { 'X-CSRF-Token': pendingCsrf },
         });
+        window.history.replaceState({}, '', '/admin');
         await bootstrap(result.csrfToken);
         return;
       }
@@ -1270,7 +1283,7 @@ async function bootstrap(csrf) {
   buildSidebar();
   await render();
   try {
-    const notifications = await api.notifications();
+    const notifications = (await api.notifications()).data;
     applySession({ ...session, unreadMessages: notifications.unread });
     buildSidebar();
     updateNotificationBadge(notifications.unread);

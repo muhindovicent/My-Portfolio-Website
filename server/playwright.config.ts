@@ -1,14 +1,18 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const port = Number(process.env.PLAYWRIGHT_PORT || 4000);
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${port}`;
+
 export default defineConfig({
   testDir: './tests',
-  fullyParallel: true,
+  globalSetup: './tests/global-setup.ts',
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  workers: 1,
   reporter: 'html',
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:4001',
+    baseURL,
     trace: 'on-first-retry',
   },
   projects: [
@@ -29,8 +33,14 @@ export default defineConfig({
     ? undefined
     : {
         command: 'npm run dev',
-        url: 'http://127.0.0.1:4001/health',
+        url: `${baseURL}/health`,
         timeout: 120 * 1000,
         reuseExistingServer: !process.env.CI,
+        env: {
+          PORT: String(port),
+          NODE_ENV: 'test',
+          SESSION_SECRET: 'browser-test-session-secret-at-least-32-chars',
+          ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        },
       },
 });
