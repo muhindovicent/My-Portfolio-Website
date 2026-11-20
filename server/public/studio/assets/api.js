@@ -56,7 +56,7 @@ export async function request(path, { method = 'GET', body, headers = {} } = {})
     throw new ApiError(err.message || `Request failed (${res.status})`, res.status, details);
   }
 
-  return payload ? payload.data : null;
+  return payload;
 }
 
 export function mutate(method, path, body) {

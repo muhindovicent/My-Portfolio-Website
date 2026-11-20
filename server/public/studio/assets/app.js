@@ -41,6 +41,7 @@ const LIST_CONFIG = {
   projects: {
     label: 'Project',
     plural: 'Projects',
+    idKey: 'slug',
     columns: [
       { label: 'Name', key: 'name' },
       { label: 'Status', key: 'status' },
@@ -567,7 +568,7 @@ async function openEditor(resource, row = null) {
       if (resource === 'projects' && !row) {
         body.slug = String(body.slug || '').toLowerCase();
       }
-      if (row) await api.update(resource, row.id, body);
+      if (row) await api.update(resource, row[config.idKey || 'id'], body);
       else await api.create(resource, body);
       close();
       toast(row ? `${config.label} updated.` : `${config.label} created.`);
@@ -590,7 +591,7 @@ async function removeRecord(resource, row) {
   });
   if (!ok) return;
   try {
-    await api.remove(resource, row.id);
+    await api.remove(resource, row[config.idKey || 'id']);
     toast(`${config.label} deleted.`);
     render();
   } catch (error) {
@@ -1220,10 +1221,10 @@ async function renderLogin() {
     try {
       if (pendingCsrf) {
         const token = form.elements.token.value.trim();
-        const body = token.length === 32 && /^[0-9a-f]+$/i.test(token)
-          ? { code: token.toLowerCase() }
-          : { token };
-        const result = await request('/api/admin/auth/login/mfa', {
+        const isBackup = token.length === 32 && /^[0-9a-f]+$/i.test(token);
+        const body = isBackup ? { code: token.toLowerCase() } : { token };
+        const path = isBackup ? '/api/admin/auth/login/backup-code' : '/api/admin/auth/login/mfa';
+        const result = await request(path, {
           method: 'POST',
           body,
           headers: { 'X-CSRF-Token': pendingCsrf },
