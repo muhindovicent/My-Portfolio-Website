@@ -180,6 +180,8 @@ describe('CRUD — projects (slug-based)', () => {
     assert.ok(updated.body.ok);
     assert.equal(updated.body.data.name, 'Updated Suite Project');
     assert.equal(updated.body.data.slug, projectSlug);
+    assert.equal(updated.body.data.status, 'PUBLISHED');
+    assert.equal(updated.body.data.sortOrder, 1);
   });
 
   test('delete project by slug (not id)', async () => {

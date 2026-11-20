@@ -1,6 +1,6 @@
 // Portfolio Studio + API are served by the Render origin; the public portfolio
 // stays on Vercel's static output. No upstream configured: static site only.
-const origin = process.env.RENDER_API_ORIGIN;
+const origin = process.env.VERCEL_ENV === 'preview' ? undefined : process.env.RENDER_API_ORIGIN;
 if (origin && !/^https:\/\/[a-z0-9-]+\.onrender\.com$/.test(origin)) {
   throw new Error('RENDER_API_ORIGIN must be the exact HTTPS Render service origin');
 }

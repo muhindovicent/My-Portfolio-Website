@@ -3,7 +3,7 @@ on:
   push:
     branches: [feature/portfolio-studio]
   pull_request:
-    branches: [feature/portfolio-studio]
+    branches: [main, feature/portfolio-studio]
 
 permissions:
   contents: read
@@ -38,6 +38,8 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci --include=dev
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=high
       - run: npm run build
       - run: npm run lint
       - run: npm test
@@ -49,5 +51,7 @@ jobs:
           npm run prisma:migrate
           npm run test:integration
       - run: npm run test:integration:studio
+      - name: Rehearse staging configuration on disposable PostgreSQL
+        run: node --test integration/staging.cjs
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:browser -- --reporter=line --retries=0
