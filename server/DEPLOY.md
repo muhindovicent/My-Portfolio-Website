@@ -1,6 +1,22 @@
 # Render: Phase 3B
 
+## Portfolio Studio
+
+The authenticated admin UI is served by the same Node service at `/admin` (login at `/admin/login`). It is a dependency-free SPA in `server/public/studio/` that reads live data from `/api/admin/dashboard`, `/api/admin/dashboard/notifications`, `/api/admin/dashboard/search` and the existing CRUD endpoints. Statistics and activity are read from the database; the UI contains no placeholder metrics.
+
+`vercel.mjs` proxies `/api/(.*)`, `/admin` and `/admin/(.*)` to `RENDER_API_ORIGIN` with the shared `x-origin-secret`. Set `RENDER_API_ORIGIN` to the Render service's exact `https://….onrender.com` origin and set the same `ORIGIN_SECRET` on both services. Without `RENDER_API_ORIGIN` Vercel serves only the static portfolio and no admin routes are exposed. Keep `/admin` behind HTTPS: the session cookie is `Secure; HttpOnly; SameSite=Lax` and host-only. Never point the browser directly at the Render origin for Studio pages.
+
 ## Same-origin routing
+
+### Phase 4A staging configuration
+
+Use a dedicated staging Render service (Node 22, `server` root, manual deploys, `/health`) and a separate Neon project initialized from migrations with synthetic content only. Do not clone production records. Pair it with one access-restricted staging frontend hostname. Set `NODE_ENV=production` on staging so secure cookies, origin checks and normal rate limits are exercised.
+
+Scope the direct TLS `DATABASE_URL`, independently generated `SESSION_SECRET`, `ENCRYPTION_KEY` and `ORIGIN_SECRET` to staging only. Set staging `CORS_ORIGIN` to the staging frontend origin; set that frontend's `RENDER_API_ORIGIN` to the staging Render origin and share only the staging `ORIGIN_SECRET` between those two services. Keep automatic deploys disabled and exclude these values from PR previews and CI. Before any authorized manual migration, verify the target service, database hostname and role against the staging project. Never run the destructive test fixtures against staging.
+
+Use a separate **Vercel project** for the stable staging hostname. Scope its staging upstream and origin secret only to that project's Production environment. Leave Preview and Development unlinked, without backend credentials; `vercel.mjs` emits no proxy routes for Preview. On the real production project restrict production variables to Production only. Never copy production variables into staging, shared environment groups, PR jobs or `.env` files in the repo. Vercel does not need the database URL, session secret or encryption key.
+
+The Phase 4A workflow checks feature pushes and PRs targeting `main` or the feature branch with disposable runner-local PostgreSQL databases. `node --test integration/staging.cjs` (from `server`, after building and migrating local `studio_test`) rehearses proxy selection, origin enforcement, CORS and secure session cookies with synthetic configuration. It does not contact a hosting provider. When a staging installation is independently authorized, verify the three project IDs and secret scopes in the provider consoles; check `/health`, direct-origin denial and same-origin login on the protected staging hostname before inviting testers.
 
 Vercel project root = repository root, framework = Other, no build command, output = `dist`. `vercel.mjs` enables an external rewrite **only** when `RENDER_API_ORIGIN` is set to your owned Render service's exact `https://….onrender.com` origin. With no upstream it serves the static portfolio. Configure the same high-entropy `ORIGIN_SECRET` (at least 32 characters) as a private environment variable on both services. Never expose it to frontend code. Use separate preview services, databases and keys; do not give untrusted PR previews access to production settings.
 

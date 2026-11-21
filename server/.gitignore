@@ -9,3 +9,7 @@ yarn-error.log*
 *.log
 coverage/
 .turbo/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

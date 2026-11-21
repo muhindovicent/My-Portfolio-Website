@@ -9,7 +9,12 @@ export function validate(schema: {
   return (req, res, next) => {
     try {
       if (schema.body) {
-        req.body = schema.body.parse(req.body);
+        const parsed = schema.body.parse(req.body);
+        // Zod 4 applies defaults even inside partial schemas. Omitted PATCH
+        // fields must retain their stored values, not their creation defaults.
+        req.body = req.method === 'PATCH' && parsed && typeof parsed === 'object'
+          ? Object.fromEntries(Object.entries(parsed).filter(([key]) => Object.hasOwn(req.body, key)))
+          : parsed;
       }
       if (schema.query) {
         req.query = schema.query.parse(req.query) as Record<string, string>;
@@ -39,4 +44,5 @@ export function parseBoolean(value: unknown): boolean | undefined {
 export const paginationQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
+  status: z.string().optional(),
 });

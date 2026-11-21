@@ -73,3 +73,27 @@ export const requireMfa: RequestHandler = (req, res, next) => {
   }
   next();
 };
+
+// Verifies the same conditions as requireAdmin but redirects browser page
+// requests to the Studio login screen instead of returning a JSON error.
+export const requireStudioPage: RequestHandler = async (req, res, next) => {
+  const authenticatedReq = req as unknown as AuthenticatedRequest;
+  const adminId = authenticatedReq.session?.adminId;
+
+  if (!adminId) {
+    res.redirect('/admin/login');
+    return;
+  }
+
+  const admin = await db.administrator.findUnique({
+    where: { id: adminId },
+    select: { id: true, isActive: true, sessionVersion: true },
+  });
+
+  if (!admin || !admin.isActive || admin.sessionVersion !== req.session.version || !req.session.mfaVerified) {
+    res.redirect('/admin/login');
+    return;
+  }
+
+  next();
+};
