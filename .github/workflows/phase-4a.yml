@@ -11,7 +11,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: server
@@ -28,11 +28,12 @@ jobs:
     env:
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:ci-only@127.0.0.1:5432/studio_test
+      PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '120000'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
@@ -53,5 +54,10 @@ jobs:
       - run: npm run test:integration:studio
       - name: Rehearse staging configuration on disposable PostgreSQL
         run: node --test integration/staging.cjs
-      - run: npx playwright install --with-deps chromium firefox webkit
+      - name: Download Playwright browsers
+        timeout-minutes: 10
+        run: ./node_modules/.bin/playwright install chromium firefox webkit
+      - name: Install Playwright system dependencies
+        timeout-minutes: 10
+        run: sudo env PATH="$PATH" DEBIAN_FRONTEND=noninteractive ./node_modules/.bin/playwright install-deps chromium firefox webkit
       - run: npm run test:browser -- --reporter=line --retries=0

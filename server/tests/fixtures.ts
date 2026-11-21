@@ -30,6 +30,12 @@ async function cleanDatabase(db) {
   }
   await db.project.deleteMany({ where: { OR: [{ slug: FIXTURE_SLUG }, { slug: { startsWith: 'browser-test-' } }] } });
   await db.websiteSetting.deleteMany({ where: { key: { startsWith: 'browser.test.' } } });
+  await db.education.deleteMany({ where: { institution: { startsWith: 'Smoke ' } } });
+  await db.professionalExperience.deleteMany({ where: { company: { startsWith: 'Smoke ' } } });
+  await db.certification.deleteMany({ where: { title: { startsWith: 'Smoke ' } } });
+  await db.skill.deleteMany({ where: { name: { startsWith: 'Smoke ' } } });
+  await db.mediaAsset.deleteMany({ where: { filename: 'smoke.svg' } });
+  await db.contactMessage.deleteMany({ where: { email: 'smoke@example.test' } });
 }
 
 async function seedDatabase() {

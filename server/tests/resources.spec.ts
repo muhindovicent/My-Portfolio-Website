@@ -34,7 +34,7 @@ test('media: add, list and remove a reference', async ({ authenticatedPage: page
   await page.getByRole('button', { name: 'Add media' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Filename').fill('smoke.svg');
-  await dialog.getByLabel('Image URL').fill(new URL('/smoke.svg', page.url()).href);
+  await dialog.getByLabel('Image URL').fill('https://example.test/smoke.svg');
   await dialog.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('button', { name: 'Delete smoke.svg' }).click();
   await dialog.getByRole('button', { name: 'Delete' }).click();
