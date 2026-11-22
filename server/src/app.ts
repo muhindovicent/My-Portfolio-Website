@@ -103,6 +103,19 @@ app.get(['/admin', '/admin/*'], requireStudioPage, (_req, res) => {
   res.sendFile(path.join(studioDir, 'index.html'));
 });
 
+// Public portfolio output is normally served as static files. In local development
+// and tests, serve it here so direct project URLs can be exercised end to end.
+if (config.NODE_ENV !== 'production') {
+  const portfolioDir = path.resolve(process.cwd(), '..', 'dist');
+  app.get(['/work/:slug', '/work/:slug/'], (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.join(portfolioDir, 'work', '_project', 'index.html'), (error) => {
+      if (error) next(error);
+    });
+  });
+  app.use(express.static(portfolioDir));
+}
+
 // 404
 app.use(notFoundHandler);
 

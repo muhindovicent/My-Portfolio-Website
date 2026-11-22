@@ -12,12 +12,15 @@ test('isolated staging proxy, origin gate and PostgreSQL-backed secure session',
     NODE_ENV: 'production', CORS_ORIGIN: 'https://staging.example.test', SESSION_SECRET: secret(),
     ORIGIN_SECRET: secret(), ENCRYPTION_KEY: secret() });
   const preview = await import('../../vercel.mjs?preview');
-  assert.deepEqual(preview.config.routes, []);
+  assert.equal(preview.config.routes.length, 1);
+  assert.equal(preview.config.routes[0].dest, '/work/_project/index.html');
+  assert.equal(preview.config.routes.some(r => r.src.startsWith('/api') || r.src.startsWith('/admin')), false);
   process.env.VERCEL_ENV = 'production'; // dedicated staging Vercel project
   const staging = await import('../../vercel.mjs?staging');
   const route = staging.config.routes.find(r => r.src === '/api/(.*)');
   assert.equal(route.dest, `${process.env.RENDER_API_ORIGIN}/api/$1`);
   assert.equal(route.transforms[0].args, '$ORIGIN_SECRET');
+  assert.ok(staging.config.routes.some(r => r.dest === '/work/_project/index.html'));
   const app = require('../dist/src/app').default;
   const prisma = require('../dist/src/config/db').db;
   try {

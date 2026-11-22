@@ -1,9 +1,9 @@
 name: Phase 4A verification
 on:
   push:
-    branches: [feature/portfolio-studio]
+    branches: [main, feature/portfolio-studio, feature/phase-4b1-public-content]
   pull_request:
-    branches: [main, feature/portfolio-studio]
+    branches: [main, feature/portfolio-studio, feature/phase-4b1-public-content]
 
 permissions:
   contents: read
@@ -52,6 +52,7 @@ jobs:
           npm run prisma:migrate
           npm run test:integration
       - run: npm run test:integration:studio
+      - run: npm run test:integration:public
       - name: Rehearse staging configuration on disposable PostgreSQL
         run: node --test integration/staging.cjs
       - name: Download Playwright browsers
