@@ -169,6 +169,13 @@ describe('Published public content API', () => {
     assert.ok(skillNames.includes('Public Test Skill Two'));
   });
 
+  test('skills are always public', async () => {
+    const skills = await request(app).get('/api/public/skills').expect(200);
+    const names = skills.body.data.map((skill) => skill.name);
+    assert.ok(names.includes('Public Test Skill'));
+    assert.ok(names.includes('Public Test Skill Two'));
+  });
+
   test('reflects content updates immediately', async () => {
     await db.project.update({ where: { slug: publishedSlug }, data: { name: 'Updated Public Project' } });
     await db.personalProfile.updateMany({ where: { isActive: true }, data: { fullName: 'Updated Active Profile' } });

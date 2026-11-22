@@ -139,6 +139,7 @@ router.get(
 router.get(
   '/skills',
   asyncHandler(async (_req, res) => {
+    // Skills have no draft/archive status in this release; all skills are public.
     const data = await db.skill.findMany({
       select: { category: true, name: true, proficiency: true, sortOrder: true },
       orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],

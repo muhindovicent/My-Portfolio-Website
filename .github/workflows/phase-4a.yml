@@ -1,7 +1,7 @@
 name: Phase 4A verification
 on:
   push:
-    branches: [feature/portfolio-studio, feature/phase-4b1-public-content]
+    branches: [main, feature/portfolio-studio, feature/phase-4b1-public-content]
   pull_request:
     branches: [main, feature/portfolio-studio, feature/phase-4b1-public-content]
 
