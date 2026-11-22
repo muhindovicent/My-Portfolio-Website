@@ -27,12 +27,12 @@ def page(path, title, body):
 <header><a class="brand" href="/">● &nbsp; Muhindo Vicent</a><nav aria-label="Main navigation">{links}</nav><button class="menu-toggle" aria-expanded="false" aria-label="Open navigation">MENU ☰</button></header>
 <main id="main">{body}</main>
 <footer><div class="wrap"><p>Have a project in mind?</p><a class="footer-title" href="/contact/">Let’s talk. <span aria-hidden="true">↗</span></a><div class="footer-meta"><span>Muhindo Vicent · Uganda</span><a href="mailto:muhindovicent27@gmail.com">Email</a><a href="https://www.linkedin.com/in/muhindo-vicent-a53542382/">LinkedIn</a><a href="{github}">GitHub ↗</a></div></div></footer>
-<script src="/motion.js" defer></script></body></html>""", encoding='utf-8')
+<script src="/motion.js" defer></script><script src="/public-content.js" defer></script></body></html>""", encoding='utf-8')
 
 def work_rows():
     rows = []
     for slug, name, label, *_ in projects:
-        rows.append(f'<a class="row" href="/work/{slug}/"><span>{name}</span><small>{label}</small><span class="arrow" aria-hidden="true">↗</span></a>')
+        rows.append(f'<a class="row" href="/work/{slug}/" data-project-slug="{slug}"><span>{name}</span><small>{label}</small><span class="arrow" aria-hidden="true">↗</span></a>')
     return ''.join(rows)
 
 page('/', 'Portfolio', f"""
@@ -50,15 +50,22 @@ page('/', 'Portfolio', f"""
 <section class="experience-strip"><h2>THE PERSON<br><em>behind the work.</em></h2><div><p>Explore my experience, volunteering, and professional learning.</p><a class="pill" href="/experience/">Experience & certifications ↗</a></div></section>
 """)
 
-page('/work/', 'Work', f'<section class="wrap inner"><h1>Selected work</h1><p class="lead">Explore my web projects and the problems they address.</p><div class="list">{work_rows()}</div></section>')
+page('/work/', 'Work', f'<section class="wrap inner"><h1>Selected work</h1><p class="lead">Explore my web projects and the problems they address.</p><div class="list" data-public-projects>{work_rows()}</div><p class="content-status" data-public-status role="status" hidden></p></section>')
 
 for slug, name, label, summary, detail, repo, demo in projects:
     source_link = ''
     demo_link = f'<a class="pill" href="{demo}">Live staging ↗</a>' if demo else ''
-    page(f'/work/{slug}/', name, f'''<article class="wrap inner case"><a href="/work/">← All work</a>
-<p class="eyebrow">{label}</p><h1>{name}</h1><p class="lead">{summary}</p>
-<div class="actions">{source_link}{demo_link}</div>
-<section class="case-body"><h2>Project overview</h2><p>{detail}</p></section></article>''')
+    page(f'/work/{slug}/', name, f'''<article class="wrap inner case" data-project-detail data-project-slug="{slug}"><a href="/work/">← All work</a>
+<p class="eyebrow" data-project-label>{label}</p><h1 data-project-name>{name}</h1><p class="lead" data-project-summary>{summary}</p>
+<div class="actions" data-project-links>{source_link}{demo_link}</div>
+<section class="case-body"><h2>Project overview</h2><p data-project-detail>{detail}</p></section>
+<p class="content-status" data-project-status role="status" hidden></p></article>''')
+
+page('/work/_project/', 'Project', '''<article class="wrap inner case" data-project-detail aria-busy="true"><a href="/work/">← All work</a>
+<p class="eyebrow" data-project-label>Work</p><h1 data-project-name>Loading project…</h1><p class="lead" data-project-summary></p>
+<div class="actions" data-project-links></div>
+<section class="case-body"><h2>Project overview</h2><p data-project-detail></p></section>
+<p class="content-status" data-project-status role="status" hidden></p></article>''')
 
 credentials = [
 ('03-313680.jpg','Third place — Launch Hackathon','4 November 2026','IEEE Cavendish University Student Branch & CUUCSA','As a member of Team Kodepalz, I earned third place at the launch hackathon at Cavendish University Uganda, Siyani Campus. The award recognizes creative problem-solving, technical skill, and teamwork.'),

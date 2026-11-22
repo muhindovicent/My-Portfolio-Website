@@ -20,8 +20,18 @@ const proxy = (src) => ({
   ],
 });
 
+// Every project URL renders the same shell; it fetches the published project by slug.
+// The negative lookahead leaves the shell file itself untouched.
+const projectShell = {
+  src: '/work/((?!_project(?:/|$))[^/]+)/?',
+  dest: '/work/_project/index.html',
+};
+
+const routes = [projectShell];
+if (origin) routes.push(proxy('/api/(.*)'), proxy('/admin'), proxy('/admin/(.*)'));
+
 export const config = {
   framework: null,
   outputDirectory: 'dist',
-  routes: origin ? [proxy('/api/(.*)'), proxy('/admin'), proxy('/admin/(.*)')] : [],
+  routes,
 };
